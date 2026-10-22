@@ -138,7 +138,8 @@ Back up after every stage; a reset is recovered from the last backup
    extras with `K.crowd(style=...)`.
 4. **Props and vehicles**: literal primitives at true position. Mark a vehicle's front in geometry
    (light blocks and grille in front, dark red at the rear); wheels at z = radius, separate with one
-   spin channel only when a close shot reads rotation (kit wheels are body mesh). No loose blocks
+   spin channel only when a close shot reads rotation (kit wheels are body mesh). Cyclists:
+   `K.vehicle(..., "bicycle")` and `K.pedal` ([contract](references/contract.md)). No loose blocks
    near a figure.
 5. **Light**: one area light; named key, fill, rim only when the brief designs light.
 6. **Cameras**: rigs and lenses per shot, `B.bind_cuts`.
