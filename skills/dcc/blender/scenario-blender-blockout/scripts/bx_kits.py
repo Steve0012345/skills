@@ -317,7 +317,9 @@ def _bicycle(name, location, facing_deg, lvl, body, pal, coll, rear_rgb, size):
         if size != 1.0:
             bmesh.ops.scale(parts.bm, vec=(size, size, size), verts=list(parts.bm.verts))
     obj = p.to_object(name, location, facing_deg, coll)
-    q.to_object(f"{name}_cranks", (0, bb[0] * size, bb[1] * size), 0.0, coll, parent=obj).rotation_mode = "XYZ"
+    cranks = q.to_object(f"{name}_cranks", (0, bb[0] * size, bb[1] * size), 0.0, coll, parent=obj)
+    cranks.rotation_mode = "XYZ"
+    cranks["vehicle_part"] = True  # spins with K.pedal but counts with the bike
     obj["saddle"] = (seat[0] * size + 0.04 * size, 0.86 * size)
     obj["bars"] = (bars[0] * size, bars[1] * size)
     obj["crank"] = (bb[0] * size, bb[1] * size, crank * size)
@@ -1073,6 +1075,72 @@ def drive(obj, path, scene=None):
     return {"vehicle": obj.name, "keys": keys}
 
 
+def pedal(fig, bike, frames, rpm=70.0, lean_deg=25.0, scene=None):
+    """Seat a figure on a K.vehicle bicycle and pedal it over `frames` (first, last): the root
+    is parented to the bike with the pelvis on the saddle, the torso leans `lean_deg` forward
+    and the hands reach the bars. A jointed figure or a mannequin keys its legs on the cranks
+    every frame at `rpm`, feet level on the pedals; a capsule or featured rider has no legs,
+    so it only sits and leans (its root tips). The bike's cranks spin either way. Drive the
+    bike with K.drive: the rider travels with it and counts with it in K.movers. Returns key
+    counts and `overreach_m`, how far the legs fall short of the lowest pedal; above 0, build
+    the bike smaller (size about rider height / 1.75)."""
+    root = bpy.data.objects[fig] if isinstance(fig, str) else fig
+    bike = bpy.data.objects[bike] if isinstance(bike, str) else bike
+    if "crank" not in bike:
+        raise ValueError(f"{bike.name} is not a K.vehicle bicycle")
+    cranks = bpy.data.objects[f"{bike.name}_cranks"]
+    h = root.get("height", 1.75)
+    (sy, sz), (by, bz), (cy, cz, c) = bike["saddle"], bike["bars"], bike["crank"]
+    lean = math.radians(lean_deg)
+    legs = bool(root.get("jointed") or root.get("rigged"))
+    seat = (_JOINTED["pelvis"][1][2] - _JOINTED["pelvis"][0][2] / 2) * h  # pelvis bottom above the root
+    root.parent = bike
+    root.matrix_parent_inverse = Matrix.Identity(4)
+    if legs:
+        root.location, root.rotation_euler = (0.0, sy, sz - seat), (0.0, 0.0, 0.0)
+    else:
+        # A capsule tips at its feet: move the root back so the seat stays on the saddle.
+        root.location = (0.0, sy + seat * math.sin(lean), sz - seat * math.cos(lean))
+        root.rotation_euler = (lean, 0.0, 0.0)
+    f0, f1 = frames
+    joints = _joints(root)
+    if legs:
+        torso = _JOINTED["torso"][1][2] * h
+        arm = _JOINTED["uparm_L"][1][2] * h - torso
+        sh_y, sh_z = sy - arm * math.sin(lean), sz - seat + torso + arm * math.cos(lean)
+        la = (_JOINTED["uparm_L"][1][2] - _JOINTED["forearm_L"][1][2]) * h
+        lf = (_JOINTED["forearm_L"][1][2] - _BONE_TAILS["forearm_L"][2]) * h
+        # The leg solver bends the knee forward; mirrored, it bends the elbow back.
+        up, fore = _leg_ik(by - sh_y, sh_z - bz, la, lf)
+        arms = {"uparm_L": up - lean, "uparm_R": up - lean, "forearm_L": fore - up, "forearm_R": fore - up}
+        pose(root, f0, torso=lean_deg, head=-0.75 * lean_deg, **{k: math.degrees(v) for k, v in arms.items()})
+        hip, knee, ankle = (_JOINTED[k][1][2] * h for k in ("thigh_L", "shin_L", "foot_L"))
+        lt, ls = hip - knee, knee - ankle
+        hip_z = sz - seat + hip
+    fps = (scene or bpy.context.scene).render.fps
+    over, keys = 0.0, 0
+    for f in range(f0, f1 + 1):
+        a = 2.0 * math.pi * rpm / 60.0 * (f - f0) / fps
+        _key_rot(cranks, f, math.degrees(a))
+        keys += 1
+        if not legs:
+            continue
+        for side, off in (("L", 0.0), ("R", math.pi)):
+            py, pz = cy - c * math.sin(a + off), cz + c * math.cos(a + off)
+            # Ball of the foot on the pedal: the ankle sits behind and above it.
+            x, v = sy - (py + 0.05 * h), hip_z - (pz + ankle)
+            over = max(over, math.hypot(x, v) - (lt + ls))
+            thigh, shin = _leg_ik(x, v, lt, ls)
+            _key_rot(joints[f"thigh_{side}"], f, -math.degrees(thigh))
+            _key_rot(joints[f"shin_{side}"], f, -math.degrees(shin - thigh))
+            _key_rot(joints[f"foot_{side}"], f, math.degrees(shin))  # sole level
+    for obj in [cranks, root, *(j for j in joints.values() if isinstance(j, bpy.types.Object))]:
+        for fc in B.fcurves(obj):
+            for kp in fc.keyframe_points:
+                kp.interpolation = "LINEAR"
+    return {"figure": root.name, "bike": bike.name, "frames": [f0, f1], "keys": keys, "overreach_m": round(max(0.0, over), 3)}
+
+
 # -- budgets ---------------------------------------------------------------------------------
 
 # Targets per density level (references/levels.md explains each row). heroes are movers the
@@ -1113,19 +1181,19 @@ def elements(scene=None):
     """Scene elements as a viewer counts them: every tagged mesh, with a figure counted once
     (its root) and not once per limb, arm or held prop."""
     sc = scene or bpy.context.scene
-    return [o.name for o in sc.objects if o.get(B.TAG) and o.visible_get() and not _in_figure(o)
+    return [o.name for o in sc.objects if o.get(B.TAG) and o.visible_get() and not _in_figure(o) and not o.get("vehicle_part")
             and (o.type == "MESH" or o.get("figure") or o.get("jointed"))]
 
 
 def movers(scene=None):
     """(heroes, extras): animated objects that move on their own, limbs, riders parented to
-    a vehicle, cameras and rigs excluded."""
+    a vehicle, a bicycle's cranks, cameras and rigs excluded."""
     sc = scene or bpy.context.scene
     heroes, extras = [], []
     for o in sc.objects:
         if not o.get(B.TAG) or not o.visible_get() or o.name.startswith(("CAM_", "RIG_", "NULL_", "CRV_")):
             continue
-        if _in_figure(o):
+        if _in_figure(o) or o.get("vehicle_part"):
             continue
         if o.parent is not None and _animated(o.parent):
             continue  # a rider or a carried prop travels with its mover and counts with it
