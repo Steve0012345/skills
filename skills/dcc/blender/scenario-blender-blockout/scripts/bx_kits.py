@@ -277,19 +277,72 @@ def tree(name, location, height=6.0, fidelity="shaped", pal=None, kind="broadlea
     return p.to_object(name, location, 0.0, coll)
 
 
-def vehicle(name, kind="car", location=(0.0, 0.0, 0.0), facing_deg=0.0, fidelity="shaped", rgb=None, pal=None, coll=None, rear_rgb=REAR_RED):
-    """Car, van, bus or scooter facing local -Y, front marked in geometry: pale headlight
-    blocks and a darker grille at the front, `rear_rgb` blocks at the rear (a dark red that
-    never reads as the red hero), so the model cannot drive it backward. Wheels are one
-    mesh here; spin a separate wheel object only for a close shot that reads rotation.
+def _tube(p, a, b, thick, rgb, x=0.0):
+    """A square tube from (y, z) point `a` to `b` in the plane x = `x`."""
+    dy, dz = b[0] - a[0], b[1] - a[1]
+    p.add("box", (thick, thick, math.hypot(dy, dz)), (x, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2), rgb,
+          rot=(math.atan2(-dy, dz), 0.0, 0.0))
+
+
+def _bicycle(name, location, facing_deg, lvl, body, pal, coll, rear_rgb, size):
+    """A bicycle 1.75 m long at size 1 (wheel radius 0.34 m), front at local -Y, and its
+    cranks as a child object, NAME_cranks, spinning on local X so K.pedal can key them."""
+    r, tire, dark = 0.34, 0.05, (0.08, 0.08, 0.09)
+    bb, seat, head_top, head_bot = (0.02, 0.29), (0.18, 0.80), (-0.38, 0.80), (-0.42, 0.62)
+    rear, front, bars, crank = (0.535, r), (-0.535, r), (-0.40, 0.98), 0.17
+    p = Parts()
+    for y in (front[0], rear[0]):
+        p.add("cylinder", (2 * r, 2 * r, tire), (0, y, r), dark, rot=(0, math.pi / 2, 0), segments=20)
+        if lvl == 2:
+            p.add("cylinder", (0.12, 0.12, 0.1), (0, y, r), pal["metal"], rot=(0, math.pi / 2, 0), segments=10)
+    for a, b in ((bb, seat), (bb, head_bot), (seat, head_top), (bb, rear)):
+        _tube(p, a, b, 0.045, body)
+    if lvl >= 1:
+        _tube(p, head_bot, head_top, 0.06, body)
+        for x in (-0.05, 0.05):
+            _tube(p, (0.16, 0.76), rear, 0.03, body, x)  # seat stays
+            _tube(p, head_bot, front, 0.035, body, x)  # fork
+    _tube(p, head_top, bars, 0.04, pal["metal"])  # stem
+    p.add("box", (0.56, 0.04, 0.04), (0, bars[0], bars[1]), pal["metal"])  # handlebar
+    p.add("box", (0.14, 0.26, 0.06), (0, seat[0] + 0.04, seat[1] + 0.03), dark)  # saddle, top at 0.86
+    p.add("box", (0.1, 0.06, 0.08), (0, head_top[0] - 0.07, 0.76), pal["light"])  # lamp
+    p.add("box", (0.08, 0.04, 0.06), (0, seat[0] + 0.12, 0.74), rear_rgb)  # rear reflector
+    q = Parts()
+    for x, z in ((0.07, crank), (-0.07, -crank)):  # L arm up at rest, R arm down
+        q.add("box", (0.03, 0.03, crank), (x, 0, z / 2), pal["metal"])
+        q.add("box", (0.09, 0.06, 0.025), (x * 1.6, 0, z), dark)
+    if lvl == 2:
+        q.add("cylinder", (0.2, 0.2, 0.01), (-0.05, 0, 0), pal["metal"], rot=(0, math.pi / 2, 0), segments=16)
+    for parts in (p, q):
+        if size != 1.0:
+            bmesh.ops.scale(parts.bm, vec=(size, size, size), verts=list(parts.bm.verts))
+    obj = p.to_object(name, location, facing_deg, coll)
+    q.to_object(f"{name}_cranks", (0, bb[0] * size, bb[1] * size), 0.0, coll, parent=obj).rotation_mode = "XYZ"
+    obj["saddle"] = (seat[0] * size + 0.04 * size, 0.86 * size)
+    obj["bars"] = (bars[0] * size, bars[1] * size)
+    obj["crank"] = (bb[0] * size, bb[1] * size, crank * size)
+    return obj
+
+
+def vehicle(name, kind="car", location=(0.0, 0.0, 0.0), facing_deg=0.0, fidelity="shaped", rgb=None, pal=None, coll=None, rear_rgb=REAR_RED,
+            size=1.0):
+    """Car, van, bus, scooter or bicycle facing local -Y, front marked in geometry: pale
+    headlight blocks and a darker grille at the front, `rear_rgb` blocks at the rear (a dark
+    red that never reads as the red hero), so the model cannot drive it backward. Wheels are
+    one mesh here; spin a separate wheel object only for a close shot that reads rotation.
     rough: body, cabin, wheels. shaped: bevels, glass band, bumpers. detailed: mirrors,
-    seats, wheel hubs, number plates."""
+    seats, wheel hubs, number plates. A bicycle is a frame of tubes with a lamp in front and
+    a reflector behind; its cranks are a child object, NAME_cranks, spinning on local X.
+    `size` scales the whole build: a bicycle for a rider of height h takes about h / 1.75."""
     pal = pal or scheme("category")
     lvl = _fidelity(fidelity)
     body = rgb or pal["vehicle"]
-    dims = {"car": (1.8, 4.4, 1.45, 0.32), "van": (2.0, 5.2, 2.2, 0.34), "bus": (2.5, 11.0, 3.1, 0.5), "scooter": (0.7, 1.8, 1.15, 0.22)}
+    dims = {"car": (1.8, 4.4, 1.45, 0.32), "van": (2.0, 5.2, 2.2, 0.34), "bus": (2.5, 11.0, 3.1, 0.5), "scooter": (0.7, 1.8, 1.15, 0.22),
+            "bicycle": None}
     if kind not in dims:
         raise ValueError(f"kind must be one of {sorted(dims)}")
+    if kind == "bicycle":
+        return _bicycle(name, location, facing_deg, lvl, body, pal, coll, rear_rgb, size)
     w, l, h, r = dims[kind]
     bev = 0.06 if lvl else 0.0
     p = Parts()
@@ -325,6 +378,8 @@ def vehicle(name, kind="car", location=(0.0, 0.0, 0.0), facing_deg=0.0, fidelity
         p.add("box", (0.5, 0.04, 0.12), (0, l / 2 + 0.1, r * 0.9 + 0.05), pal["trim"], base=True)
         for s in (-1, 1):
             p.add("box", (w * 0.36, 0.5, 0.5), (s * w * 0.22, l * 0.02, r * 0.9 + h * 0.5), pal["fabric"], base=True)
+    if size != 1.0:
+        bmesh.ops.scale(p.bm, vec=(size, size, size), verts=list(p.bm.verts))
     return p.to_object(name, location, facing_deg, coll)
 
 
