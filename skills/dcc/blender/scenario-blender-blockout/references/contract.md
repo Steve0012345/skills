@@ -181,6 +181,8 @@ measurement, not the setting. `animation_data_clear()` deletes the modifiers wit
   - A nonzero `overreach_m` in its result means the bike is too big for the rider: rebuild it with a
     smaller `size`.
   - Drive the bike with `K.drive`, never the rider. The rider counts with the bike in `K.movers`.
+  - It clears the rider's earlier keys, a `K.walk_path` included. Key gestures with `K.pose` after
+    it.
   - Pass the bike, not the rider, to `B.audit_ground`: a pedaling foot is off the ground.
 - Interior shots: build the cabin (dashboard, steering wheel, a sphere-head driver) and give the
   cabin shell alpha (about 0.22, blended) so interior cameras see through it.
