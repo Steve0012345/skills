@@ -1081,9 +1081,10 @@ def pedal(fig, bike, frames, rpm=70.0, lean_deg=25.0, scene=None):
     and the hands reach the bars. A jointed figure or a mannequin keys its legs on the cranks
     every frame at `rpm`, feet level on the pedals; a capsule or featured rider has no legs,
     so it only sits and leans (its root tips). The bike's cranks spin either way. Drive the
-    bike with K.drive: the rider travels with it and counts with it in K.movers. Returns key
-    counts and `overreach_m`, how far the legs fall short of the lowest pedal; above 0, build
-    the bike smaller (size about rider height / 1.75)."""
+    bike with K.drive: the rider travels with it and counts with it in K.movers. It clears the
+    figure's earlier keys, a K.walk_path included, so key gestures with K.pose after it. Returns
+    key counts and `overreach_m`, how far the legs fall short of the lowest pedal; above 0,
+    build the bike smaller (size about rider height / 1.75)."""
     root = bpy.data.objects[fig] if isinstance(fig, str) else fig
     bike = bpy.data.objects[bike] if isinstance(bike, str) else bike
     if "crank" not in bike:
@@ -1094,6 +1095,9 @@ def pedal(fig, bike, frames, rpm=70.0, lean_deg=25.0, scene=None):
     lean = math.radians(lean_deg)
     legs = bool(root.get("jointed") or root.get("rigged"))
     seat = (_JOINTED["pelvis"][1][2] - _JOINTED["pelvis"][0][2] / 2) * h  # pelvis bottom above the root
+    # World-space travel keys would keep playing in bike space once parented: the rider slid off.
+    for obj in (root, *root.children_recursive):
+        obj.animation_data_clear()
     root.parent = bike
     root.matrix_parent_inverse = Matrix.Identity(4)
     if legs:
