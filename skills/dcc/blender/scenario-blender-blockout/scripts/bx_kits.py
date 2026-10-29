@@ -1077,10 +1077,11 @@ def drive(obj, path, scene=None):
 
 def pedal(fig, bike, frames, rpm=70.0, lean_deg=25.0, scene=None):
     """Seat a figure on a K.vehicle bicycle and pedal it over `frames` (first, last): the root
-    is parented to the bike with the pelvis on the saddle, the torso leans `lean_deg` forward
-    and the hands reach the bars. A jointed figure or a mannequin keys its legs on the cranks
-    every frame at `rpm`, feet level on the pedals; a capsule or featured rider has no legs,
-    so it only sits and leans (its root tips). The bike's cranks spin either way. Drive the
+    is parented to the bike with the pelvis on the saddle and the torso leans `lean_deg`
+    forward. A jointed figure or a mannequin also puts its hands on the bars and keys its legs
+    on the cranks every frame at `rpm`, feet level on the pedals; a capsule or featured rider
+    has no legs, so it only sits and leans (its root tips). A featured rider's arm_L and arm_R
+    hang: pose them onto the bars with K.pose. The bike's cranks spin either way. Drive the
     bike with K.drive: the rider travels with it and counts with it in K.movers. It clears the
     figure's earlier keys, a K.walk_path included, so key gestures with K.pose after it. Returns
     key counts and `overreach_m`, how far the legs fall short of the lowest pedal; above 0,

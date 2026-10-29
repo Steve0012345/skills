@@ -182,10 +182,11 @@ measurement, not the setting. `animation_data_clear()` deletes the modifiers wit
   wheels at z = radius, a tube frame, a pale lamp in front and a dark red reflector behind, and
   spinning cranks as a child object.
 - Riders: `K.pedal(fig, bike, (first, last))` seats a figure of any style on a bicycle.
-  - It parents the root to the bike with the pelvis on the saddle, leans the torso 25 degrees, and
-    puts the hands on the bars.
-  - A jointed figure or a mannequin keys its legs on the cranks every frame (70 rpm by default). A
-    capsule only sits and leans.
+  - It parents the root to the bike with the pelvis on the saddle and leans the torso 25 degrees.
+  - A jointed figure or a mannequin also puts its hands on the bars and keys its legs on the cranks
+    every frame (70 rpm by default).
+  - A capsule only sits and leans. A featured rider's `arm_L` and `arm_R` hang: pose them onto the
+    bars with `K.pose`.
   - A nonzero `overreach_m` in its result means the bike is too big for the rider: rebuild it with a
     smaller `size`.
   - Drive the bike with `K.drive`, never the rider. The rider counts with the bike in `K.movers`.
